@@ -2,8 +2,6 @@
 # Assignment 1 script for finding matching lines in a file
 # Author: Malcolm McKellips
 
-#just added this line to test a push to see if docker container is now working.
-
 if [ $# -lt 2 ]
 then
 	echo "Not enough arguments supplied to finder script! Expected 2, got $#."
