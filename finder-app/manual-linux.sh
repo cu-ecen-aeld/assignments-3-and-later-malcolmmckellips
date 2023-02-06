@@ -35,15 +35,16 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper #deep clean kernel build tree
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig #configure for virt arm board
-    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all #build kernel image
-    make AARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules #build kernel modules
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs #build device tree 
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE mrproper #deep clean kernel build tree
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE defconfig #configure for virt arm board
+    make -j4 ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE all #build kernel image
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE modules #build kernel modules
+    make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE dtbs #build device tree 
     
 fi
 
 echo "Adding the Image in outdir"
+cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}
 
 echo "Creating the staging directory for the root filesystem"
 cd "$OUTDIR"
@@ -76,10 +77,11 @@ fi
 
 # TODO: Make and install busybox
 
-make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
-make CONFIG_PREFIX="${OUTDIR}/rootfs" ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
+make ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE
+make CONFIG_PREFIX="${OUTDIR}/rootfs" ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE install
 
 echo "Library dependencies"
+cd "${OUTDIR}/rootfs"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
@@ -108,16 +110,20 @@ make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
-cp writer writer.o finder.sh conf/username.txt finder-test.sh autorun-qemu.sh "${OUTDIR}/rootfs/home"
-
+cp writer writer.o finder.sh finder-test.sh autorun-qemu.sh "${OUTDIR}/rootfs/home"
+mkdir "${OUTDIR}/rootfs/conf"
+cp conf/username.txt conf/assignment.txt "${OUTDIR}/rootfs/conf" 
+mkdir "${OUTDIR}/rootfs/home/conf"
+cp conf/username.txt conf/assignment.txt "${OUTDIR}/rootfs/home/conf" 
 
 # TODO: Chown the root directory
 cd "${OUTDIR}/rootfs"
 sudo chown -R root:root * #maybe unnecessary? makes it uninteractive
 
-
 # TODO: Create initramfs.cpio.gz
 cd "${OUTDIR}/rootfs"
 find . | cpio -H newc -ov --owner root:root > ${OUTDIR}/initramfs.cpio
+
+cd "${OUTDIR}"
 gzip -f initramfs.cpio
 
