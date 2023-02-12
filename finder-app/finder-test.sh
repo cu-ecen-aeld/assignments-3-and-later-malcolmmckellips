@@ -55,14 +55,15 @@ fi
 #make clean
 #make
 FINDER_APP_DIR=`dirname $0`
+cd ${FINDER_APP_DIR}
 
 for i in $( seq 1 $NUMFILES)
 do
-	./${FINDER_APP_DIR}/writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
 #OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
-OUTPUTSTRING=$(./${FINDER_APP_DIR}/finder.sh "$WRITEDIR" "$WRITESTR")
+OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
 echo ${OUTPUTSTRING} > $OUTPUTFILE
 
 # remove temporary directories
