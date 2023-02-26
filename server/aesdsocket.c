@@ -23,6 +23,7 @@
 
 #define RECVBUFF_SIZE 100 //this will be the size per block of recv buffer, if it fills up new block of this size will be added on
 
+
 //Reference for signal handler strategy with flag: https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 volatile int signal_flag = 0; //this flag will be set if sigterm or sigint are received
 
@@ -32,20 +33,9 @@ void handle_sigint_sigterm(int sigval){
 }
 
 int main(){
-	//Open socket bound to port 9000 return -1 if failure
-	int socket_fd = socket(PF_INET6, SOCK_STREAM, 0);
-	if (socket_fd == -1){
-		printf("Error creating socket!\r\n");
-		return -1;
-	}
-	
-	//Allow us to reuse socket right away
-	int reuse_value=1; //boolean value to set SO_REUSEADDR: 
-	setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_value, sizeof(reuse_value));
-	
-	
 	//References: AESD course slides "Sockets pg. 15: Getting Sockaddr", "https://beej.us/guide/bgnet: pg. 21"
 	//The below was pulled almost directly from above resources
+ 	
  	
  	//Get address info for localhost port 9000
  	struct addrinfo hints;
@@ -63,16 +53,46 @@ int main(){
  		printf("Error obtaining address info!\r\n");
  		return -1;
  	}
- 	
- 	
+
+
  	//bind address to socket
- 	rc = bind(socket_fd, ai_result->ai_addr, sizeof(struct sockaddr));
-	if (rc == -1){
- 		printf("Error binding socket to address!\r\n");
- 		return -1;
+ 	//reference:https://beej.us/guide/bgnet/pdf/bgnet_usl_c_1.pdf pg. 35
+ 	int socket_fd;
+ 	struct addrinfo *current_node; //current node of LL containing addr info results
+ 	
+ 	//Traverse linked list looking for valid address info to create and bind socket
+ 	for (current_node = ai_result; current_node != NULL; current_node=current_node->ai_next){
+ 		socket_fd = socket(AF_INET6, SOCK_STREAM, 0);
+		if (socket_fd == -1){
+			printf("socket creation failed, trying next\r\n");
+			continue;
+		}
+		
+		int reuse_value=1; //boolean value to set SO_REUSEADDR: 
+		rc = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_value, sizeof(reuse_value));
+		if (rc == -1){
+			printf("Error setting socket address to reusable!\r\n");
+			return -1;
+		}
+		
+		rc = bind(socket_fd, current_node->ai_addr, current_node->ai_addrlen);
+		if (rc == -1){
+			close(socket_fd);
+ 			printf("socket bind failed, trying next\r\n");
+ 			continue;
+ 		}
+ 		break;
  	}
  	
  	freeaddrinfo(ai_result); //no longer need address info after binding
+ 	
+ 	if (current_node == NULL){
+ 		printf("Error binding socket! No socket binded, exiting program...\r\n");
+		return -1;
+ 	}
+ 	else{
+ 		printf("Socket successfully binded!\r\n");
+ 	}
  	
  	//listen for connections
  	rc = listen(socket_fd, 5); //wait for connection, allow backlog of 5 waiters...
@@ -133,12 +153,15 @@ int main(){
  		int newline_recv      = 0;  //acting as a boolean for whether or not the newest character was a newline
  		int connection_closed = 0;  //acting as a bollean for whether or not connection has closed
  		
+ 		
  		while (!connection_closed && !signal_flag){
+ 			//Receive bytes from connection, one byte at a time until newline
+ 			//TODO: if this isn't working or has performance issues, try calling recv with the peak flag to see how many bytes to recv, allocate mem for them and then call recv again
  			newline_recv = 0;
  			while((!newline_recv) && (!connection_closed) && (!signal_flag)){
  				recv_block_bytes = recv(connection_fd,recv_buff+recv_buff_size-1,1,0);
  				if (recv_block_bytes == 0){
- 					printf("Connection closed or 0 bytes received\r\n");
+ 					printf("Connection closed\r\n");
  					recv_buff_size--; //we are terminating the loop but the last byte of our allocated buffer wasn't used since we read 0 bytes
  					connection_closed = 1;
  				}
@@ -156,6 +179,10 @@ int main(){
  						//add new byte to buffer to be read in at the next loop execution
  						recv_buff_size ++;
  						recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
+ 						if (recv_buff == NULL){
+ 							printf("Error current packet received is larger than heap size!\r\n");
+ 							return -1;
+ 						}
  					}
  				}
  			}
@@ -167,6 +194,21 @@ int main(){
 					printf("Error writing packet to tmp data file!\r\n");
 					return -1;
 				}
+				//We can reset our recieve buffer to a single char in preparation for recieving next packet
+				recv_buff_size = 1;
+ 				recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
+ 				if (recv_buff == NULL){
+ 					printf("Error resetting recv buffer size!\r\n");
+ 					return -1;
+ 				}
+ 				
+				char *current_line = "Hi I'm responding. And I am so so tired.";
+				int  line_len = strlen(current_line);
+				int  sent_bytes = send(connection_fd,current_line,line_len,0);
+				if (sent_bytes != line_len){
+					printf("Error: didn't send all bytes of current line\r\n");
+				}
+				
  			}
 		}
 		//If we reach here, either the connection was closed or sigint or sigterm were recvd
