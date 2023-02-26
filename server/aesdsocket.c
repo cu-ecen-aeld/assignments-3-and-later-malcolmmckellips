@@ -25,7 +25,7 @@
 
 
 //Reference for signal handler strategy with flag: https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
-volatile int signal_flag = 0; //this flag will be set if sigterm or sigint are received
+static volatile sig_atomic_t signal_flag = 0; //this flag will be set if sigterm or sigint are received
 
 void handle_sigint_sigterm(int sigval){
 	syslog((LOG_USER | LOG_INFO),"Caught signal, exiting");
@@ -33,9 +33,19 @@ void handle_sigint_sigterm(int sigval){
 }
 
 int main(){
+	//reference:https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
+	//Add signal handler for sig int and sigterm
+	sigset_t blocked_signals;
+	struct sigaction sa;
+	sigemptyset(&blocked_signals);
+	sa.sa_handler = &handle_sigint_sigterm;
+	sa.sa_mask = blocked_signals;
+	sa.sa_flags = 0;
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
+
 	//References: AESD course slides "Sockets pg. 15: Getting Sockaddr", "https://beej.us/guide/bgnet: pg. 21"
 	//The below was pulled almost directly from above resources
- 	
  	
  	//Get address info for localhost port 9000
  	struct addrinfo hints;
@@ -109,35 +119,45 @@ int main(){
  	}
 
 	
+	//TODO: This does introduce a race condition around signal flag if it is updated between times where it is checked.
+	//It would be better to poll on a signal fd. Can try if I have time.
  	//forever wait for connections...
  	while(!signal_flag){ //this loop will define our connection scope
  		//reference: "https://beej.us/guide/bgnet: pg. 28"
  		struct sockaddr_storage client_addr; //address of the remote client connecting. Note that sockaddr_storage can fit ipv6 or v4
  		socklen_t client_addr_size = sizeof(client_addr);
- 	
- 		int connection_fd = accept(socket_fd, (struct sockaddr*)&client_addr, &client_addr_size);
- 	
- 		if(connection_fd == -1){
- 			printf("Error accepting socket connection\r\n");
- 			return -1;
- 		}
- 	
- 		//reference: https://stackoverflow.com/questions/12810587/extracting-ip-address-and-port-info-from-sockaddr-storage
 
+ 		int connection_fd;
  		char client_ip_str[INET6_ADDRSTRLEN];
- 	
- 		const char* client_ip_res = inet_ntop(AF_INET6,&(((struct sockaddr_in6*)((struct sockaddr *)&client_addr))->sin6_addr) ,client_ip_str,sizeof(client_ip_str));
- 	
- 		if (client_ip_res == NULL){
- 			printf("Errror extracting IP from client address\r\n");
- 			return -1;
- 		}
+ 		const char* client_ip_res;
+ 		int connect_success = 0;
  		
- 		printf("Accepted connection from %s\r\n",client_ip_res);
- 		syslog((LOG_USER | LOG_INFO),"Accepted connection from %s",client_ip_res);
- 	
-
- 	
+ 		connection_fd = accept(socket_fd, (struct sockaddr*)&client_addr, &client_addr_size);
+ 		if(connection_fd == -1){
+ 			if ((errno == EINTR) && signal_flag) {
+ 				printf("socket accept interrupted by signal, begin clean termination...\r\n");
+ 			}
+ 			else{
+ 				printf("Error accepting socket connection\r\n");
+ 				return -1;
+ 			}
+ 		}
+ 		else{
+ 			//successful connection!
+ 			connect_success = 1;
+ 			//reference: https://stackoverflow.com/questions/12810587/extracting-ip-address-and-port-info-from-sockaddr-storage
+ 			client_ip_res = inet_ntop(AF_INET6,&(((struct sockaddr_in6*)((struct sockaddr *)&client_addr))->sin6_addr) ,client_ip_str,sizeof(client_ip_str));
+ 			
+ 			
+ 			if (client_ip_res == NULL){
+ 				printf("Errror extracting IP from client address\r\n");
+ 				return -1;
+ 			}
+ 		
+ 			printf("Accepted connection from %s\r\n",client_ip_res);
+ 			syslog((LOG_USER | LOG_INFO),"Accepted connection from %s",client_ip_res);
+ 		}
+		
  		//dynamically allocate a buffer for receiving
  		//recv_buff = (char*)malloc(RECVBUFF_SIZE*sizeof(char));
  		char* recv_buff = (char*)malloc(1*sizeof(char));//receiving on char at a time will make logic easier, but will likely impact performance
@@ -166,9 +186,14 @@ int main(){
  					connection_closed = 1;
  				}
  				else if (recv_block_bytes == -1){
- 					printf("Error in socket recv\r\n");
- 					newline_recv = 1;
- 					return -1;
+ 					if ((errno == EINTR) && signal_flag) {
+ 						printf("recv interrupted by signal, begin clean termination...\r\n");
+ 					}
+ 					else{
+ 						printf("Error in socket recv\r\n");
+ 						return -1;
+ 					}
+ 					
  				}
  				else{
  					//Check if new byte is a newline
@@ -212,9 +237,14 @@ int main(){
  			}
 		}
 		//If we reach here, either the connection was closed or sigint or sigterm were recvd
-		close(connection_fd);
-		syslog((LOG_USER | LOG_INFO),"Closed connection from %s",client_ip_str);
-		free(recv_buff);
+		//Only close connection and log connection if it was successfully accepted earlier
+		if (connect_success){
+			close(connection_fd);
+			syslog((LOG_USER | LOG_INFO),"Closed connection from %s",client_ip_str);
+		}
+		
+		//free rec_v buffer either way
+		free(recv_buff); 
 	}
 	//If we reach here, sigint or sigterm recvd
 	close(packetdata_fd);
