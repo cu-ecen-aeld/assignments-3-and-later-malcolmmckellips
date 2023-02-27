@@ -301,7 +301,11 @@ int main(){
 	}
 	
 	close(packetdata_fd);
-	//TODO: will also need to delete the packet data file when not in testing mode...
+	//remove the data file
+	if (remove ("/var/tmp/aesdsocketdata") !=0 ){
+		printf("Issue deleting data file!");
+		return -1;
+	} 
 	close(socket_fd);
 	
 	return 0;	
