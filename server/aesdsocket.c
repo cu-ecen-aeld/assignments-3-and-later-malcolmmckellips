@@ -2,7 +2,7 @@
 * Author: Malcolm McKellips
 * File: aesdsocket.c
 * Class: AESD
-* Purpose: Open a socket for receiving data and outputing to a file
+* Purpose: Open a socket for receiving data and outputing to a file.
 * 
 */
 #include <stdio.h>
