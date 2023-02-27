@@ -21,8 +21,8 @@
 #include <netdb.h>
 #include <signal.h>
 
-#define RECVBUFF_SIZE 100 //this will be the size per block of recv buffer, if it fills up new block of this size will be added on
-
+//#define RECVBUFF_SIZE 100 //this will be the size per block of recv buffer, if it fills up new block of this size will be added on
+//Note: Current implementation instead recv's byte at a time to simplify recv logic
 
 //Reference for signal handler strategy with flag: https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 static volatile sig_atomic_t signal_flag = 0; //this flag will be set if sigterm or sigint are received
@@ -32,7 +32,64 @@ void handle_sigint_sigterm(int sigval){
 	signal_flag = 1;
 }
 
+//Note, assumes that fd is open and connection_fd is connected
+int write_file_to_socket(int fd, int connection_fd){
+	//TODO: might want to add EINTR error check in case seek is interrupted by signal
+	off_t old_pos = lseek(fd,0,SEEK_CUR);
+	if (old_pos == (off_t)-1){
+ 		printf("Error in seek\r\n");
+ 		return -1;
+	}
+	//now read from the start of the file
+	off_t new_pos = lseek(fd,0,SEEK_SET);
+	if (new_pos == (off_t)-1){
+ 		printf("Error in seek\r\n");
+ 		return -1;
+	}	
+	
+	//write character by character from file to socket. likely inefficient, but easy to wrap my head around
+	char read_buff[1];
+	ssize_t bytes_read;
+	int bytes_sent;
+	
+	while((bytes_read = read(fd,read_buff,1)) != 0){
+		if (bytes_read == -1){
+			if ((errno == EINTR) && signal_flag) {
+ 				printf("file read interrupted by signal, finishing file operations then begin clean termination...\r\n");
+ 			}
+ 			else{
+ 				printf("Error in file read\r\n");
+ 				return -1;
+ 			}	
+		}
+		else{
+			//successfully read byte
+			retry_send:
+			bytes_sent = send(connection_fd,read_buff,1,0);
+			if (bytes_sent != 1){
+				if ((errno == EINTR) && signal_flag) {
+ 					printf("socket_write interrupted by signal, finishing file operations then begin clean termination...\r\n");
+ 					goto retry_send; //we were interrupted by signal handler, retry send as per https://beej.us/guide/bgnet/pdf pg.77
+ 				}
+ 				else{
+ 					printf("Error in socket write\r\n");
+ 					return -1;
+ 				}				
+			}
+		}
+	}
+	
+	//return the file position to where it was...
+	if (old_pos == (off_t)-1){
+ 		printf("Error in seek\r\n");
+ 		return -1;
+	}
+	
+	return 0;	
+}
+
 int main(){
+	
 	//reference:https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 	//Add signal handler for sig int and sigterm
 	sigset_t blocked_signals;
@@ -117,7 +174,6 @@ int main(){
  		printf("Errror creating/opening temp data file\r\n");
  		return -1;
  	}
-
 	
 	//TODO: This does introduce a race condition around signal flag if it is updated between times where it is checked.
 	//It would be better to poll on a signal fd. Can try if I have time.
@@ -227,12 +283,9 @@ int main(){
  					return -1;
  				}
  				
-				char *current_line = "Hi I'm responding. And I am so so tired.";
-				int  line_len = strlen(current_line);
-				int  sent_bytes = send(connection_fd,current_line,line_len,0);
-				if (sent_bytes != line_len){
-					printf("Error: didn't send all bytes of current line\r\n");
-				}
+ 				//write the file to the connection
+				if(write_file_to_socket(packetdata_fd, connection_fd) == -1)
+					return -1;
 				
  			}
 		}
@@ -246,7 +299,7 @@ int main(){
 		//free rec_v buffer either way
 		free(recv_buff); 
 	}
-	//If we reach here, sigint or sigterm recvd
+	
 	close(packetdata_fd);
 	//TODO: will also need to delete the packet data file when not in testing mode...
 	close(socket_fd);
