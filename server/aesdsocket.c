@@ -5,8 +5,6 @@
 * Purpose: Open a socket for receiving data and outputing to a file
 * 
 */
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,13 +35,13 @@ int write_file_to_socket(int fd, int connection_fd){
 	//TODO: might want to add EINTR error check in case seek is interrupted by signal
 	off_t old_pos = lseek(fd,0,SEEK_CUR);
 	if (old_pos == (off_t)-1){
- 		printf("Error in seek\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error in seek");
  		return -1;
 	}
 	//now read from the start of the file
 	off_t new_pos = lseek(fd,0,SEEK_SET);
 	if (new_pos == (off_t)-1){
- 		printf("Error in seek\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error in seek");
  		return -1;
 	}	
 	
@@ -55,10 +53,10 @@ int write_file_to_socket(int fd, int connection_fd){
 	while((bytes_read = read(fd,read_buff,1)) != 0){
 		if (bytes_read == -1){
 			if ((errno == EINTR) && signal_flag) {
- 				printf("file read interrupted by signal, finishing file operations then begin clean termination...\r\n");
+ 				syslog((LOG_USER | LOG_INFO),"file read interrupted by signal, finishing file operations then begin clean termination...");
  			}
  			else{
- 				printf("Error in file read\r\n");
+ 				syslog((LOG_USER | LOG_INFO),"Error in file read");
  				return -1;
  			}	
 		}
@@ -68,11 +66,11 @@ int write_file_to_socket(int fd, int connection_fd){
 			bytes_sent = send(connection_fd,read_buff,1,0);
 			if (bytes_sent != 1){
 				if ((errno == EINTR) && signal_flag) {
- 					printf("socket_write interrupted by signal, finishing file operations then begin clean termination...\r\n");
+ 					syslog((LOG_USER | LOG_INFO),"socket_write interrupted by signal, finishing file operations then begin clean termination...");
  					goto retry_send; //we were interrupted by signal handler, retry send as per https://beej.us/guide/bgnet/pdf pg.77
  				}
  				else{
- 					printf("Error in socket write\r\n");
+ 					syslog((LOG_USER | LOG_INFO),"Error in socket write");
  					return -1;
  				}				
 			}
@@ -81,14 +79,14 @@ int write_file_to_socket(int fd, int connection_fd){
 	
 	//return the file position to where it was...
 	if (old_pos == (off_t)-1){
- 		printf("Error in seek\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error in seek");
  		return -1;
 	}
 	
 	return 0;	
 }
 
-int main(){
+int main(int argc, char*argv[]){
 	
 	//reference:https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 	//Add signal handler for sig int and sigterm
@@ -117,7 +115,7 @@ int main(){
  	int rc = getaddrinfo(NULL, "9000", &hints, &ai_result);
  	
  	if (rc != 0){
- 		printf("Error obtaining address info!\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error obtaining address info!");
  		return -1;
  	}
 
@@ -131,21 +129,21 @@ int main(){
  	for (current_node = ai_result; current_node != NULL; current_node=current_node->ai_next){
  		socket_fd = socket(AF_INET6, SOCK_STREAM, 0);
 		if (socket_fd == -1){
-			printf("socket creation failed, trying next\r\n");
+			syslog((LOG_USER | LOG_INFO),"socket creation failed, trying next");
 			continue;
 		}
 		
 		int reuse_value=1; //boolean value to set SO_REUSEADDR: 
 		rc = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_value, sizeof(reuse_value));
 		if (rc == -1){
-			printf("Error setting socket address to reusable!\r\n");
+			syslog((LOG_USER | LOG_INFO),"Error setting socket address to reusable!");
 			return -1;
 		}
 		
 		rc = bind(socket_fd, current_node->ai_addr, current_node->ai_addrlen);
 		if (rc == -1){
 			close(socket_fd);
- 			printf("socket bind failed, trying next\r\n");
+ 			syslog((LOG_USER | LOG_INFO),"socket bind failed, trying next");
  			continue;
  		}
  		break;
@@ -154,24 +152,34 @@ int main(){
  	freeaddrinfo(ai_result); //no longer need address info after binding
  	
  	if (current_node == NULL){
- 		printf("Error binding socket! No socket binded, exiting program...\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error binding socket! No socket binded, exiting program...");
 		return -1;
  	}
  	else{
- 		printf("Socket successfully binded!\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Socket successfully binded!");
+ 		if (argc > 1){
+ 			if (!strcmp(argv[1],"-d")){
+ 				//we are goin demon mode
+				if ( daemon(0,1) == -1){
+					syslog((LOG_USER | LOG_INFO),"Error binding socket! No socket binded, exiting program...");
+					return -1;
+				}
+				
+ 			}
+ 		}
  	}
  	
  	//listen for connections
  	rc = listen(socket_fd, 5); //wait for connection, allow backlog of 5 waiters...
  	if (rc == -1){
- 		printf("Error listening to socket\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Error listening to socket");
  		return -1;
  	}
  		
  	//Open or Create file for input data
  	int packetdata_fd = open("/var/tmp/aesdsocketdata", (O_RDWR | O_CREAT | O_APPEND), 0644);
  	if (packetdata_fd == -1){
- 		printf("Errror creating/opening temp data file\r\n");
+ 		syslog((LOG_USER | LOG_INFO),"Errror creating/opening temp data file");
  		return -1;
  	}
 	
@@ -191,10 +199,10 @@ int main(){
  		connection_fd = accept(socket_fd, (struct sockaddr*)&client_addr, &client_addr_size);
  		if(connection_fd == -1){
  			if ((errno == EINTR) && signal_flag) {
- 				printf("socket accept interrupted by signal, begin clean termination...\r\n");
+ 				syslog((LOG_USER | LOG_INFO),"socket accept interrupted by signal, begin clean termination...\r\n");
  			}
  			else{
- 				printf("Error accepting socket connection\r\n");
+ 				syslog((LOG_USER | LOG_INFO),"Error accepting socket connection");
  				return -1;
  			}
  		}
@@ -206,11 +214,10 @@ int main(){
  			
  			
  			if (client_ip_res == NULL){
- 				printf("Errror extracting IP from client address\r\n");
+ 				syslog((LOG_USER | LOG_INFO),"Errror extracting IP from client address");
  				return -1;
  			}
  		
- 			printf("Accepted connection from %s\r\n",client_ip_res);
  			syslog((LOG_USER | LOG_INFO),"Accepted connection from %s",client_ip_res);
  		}
 		
@@ -220,7 +227,7 @@ int main(){
  		//NOTE: man page says if recv buffer isn't big enough for whole msg some may be discarded, so I may want to change this
  		
  		if (recv_buff == NULL){
- 			printf("Error when allocating initial recv buffer block!\r\n");
+ 			syslog((LOG_USER | LOG_INFO),"Error when allocating initial recv buffer block!");
  			return -1;
  		}
  		
@@ -237,16 +244,16 @@ int main(){
  			while((!newline_recv) && (!connection_closed) && (!signal_flag)){
  				recv_block_bytes = recv(connection_fd,recv_buff+recv_buff_size-1,1,0);
  				if (recv_block_bytes == 0){
- 					printf("Connection closed\r\n");
+ 					syslog((LOG_USER | LOG_INFO),"Connection closed");
  					recv_buff_size--; //we are terminating the loop but the last byte of our allocated buffer wasn't used since we read 0 bytes
  					connection_closed = 1;
  				}
  				else if (recv_block_bytes == -1){
  					if ((errno == EINTR) && signal_flag) {
- 						printf("recv interrupted by signal, begin clean termination...\r\n");
+ 						syslog((LOG_USER | LOG_INFO),"recv interrupted by signal, begin clean termination...\r\n");
  					}
  					else{
- 						printf("Error in socket recv\r\n");
+ 						syslog((LOG_USER | LOG_INFO),"Error in socket recv");
  						return -1;
  					}
  					
@@ -261,7 +268,7 @@ int main(){
  						recv_buff_size ++;
  						recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
  						if (recv_buff == NULL){
- 							printf("Error current packet received is larger than heap size!\r\n");
+ 							syslog((LOG_USER | LOG_INFO),"Error current packet received is larger than heap size!\r\n");
  							return -1;
  						}
  					}
@@ -272,14 +279,14 @@ int main(){
  				//if we've reached here, its time to write to file, newline recvd
 				ssize_t bytes_written = write(packetdata_fd, recv_buff,recv_buff_size);
 				if (bytes_written != recv_buff_size){
-					printf("Error writing packet to tmp data file!\r\n");
+					syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
 					return -1;
 				}
 				//We can reset our recieve buffer to a single char in preparation for recieving next packet
 				recv_buff_size = 1;
  				recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
  				if (recv_buff == NULL){
- 					printf("Error resetting recv buffer size!\r\n");
+ 					syslog((LOG_USER | LOG_INFO),"Error resetting recv buffer size!");
  					return -1;
  				}
  				
@@ -303,7 +310,7 @@ int main(){
 	close(packetdata_fd);
 	//remove the data file
 	if (remove ("/var/tmp/aesdsocketdata") !=0 ){
-		printf("Issue deleting data file!");
+		syslog((LOG_USER | LOG_INFO),"Issue deleting data file!");
 		return -1;
 	} 
 	close(socket_fd);
