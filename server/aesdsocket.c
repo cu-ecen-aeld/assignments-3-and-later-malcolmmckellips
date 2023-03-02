@@ -133,7 +133,8 @@ void *connectionThreadWork(void *threadParamsIn){
      char* recv_buff = (char*)malloc(1*sizeof(char));
      if (recv_buff == NULL){
          syslog((LOG_USER | LOG_INFO),"Error when allocating initial recv buffer block!");
-         pthread_exit(NULL);;
+         threadParams->thread_complete = 1;
+         pthread_exit(NULL);
      }
      
      int recv_buff_size    = 1;  //will track how much mem is allocated to buffer of received characters
@@ -152,11 +153,12 @@ void *connectionThreadWork(void *threadParamsIn){
                  connection_closed = 1;
              }
              else if (recv_block_bytes == -1){
-                 if ((errno == EINTR) && signal_flag) {
+                 if (signal_flag) {
                      syslog((LOG_USER | LOG_INFO),"recv interrupted by signal, begin clean termination...\r\n");
                  }
                  else{
                      syslog((LOG_USER | LOG_INFO),"Error in socket recv");
+                     threadParams->thread_complete = 1;
                      pthread_exit(NULL);
                  }
                      
@@ -172,6 +174,7 @@ void *connectionThreadWork(void *threadParamsIn){
                      recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
                      if (recv_buff == NULL){
                          syslog((LOG_USER | LOG_INFO),"Error current packet received is larger than heap size!\r\n");
+                         threadParams->thread_complete = 1;
                          pthread_exit(NULL);
                      }
                  }
@@ -189,6 +192,7 @@ void *connectionThreadWork(void *threadParamsIn){
                 
                 if (bytes_written == -1){
                     syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
+                    threadParams->thread_complete = 1;
                     pthread_exit(NULL);
                 }
             }
@@ -197,6 +201,7 @@ void *connectionThreadWork(void *threadParamsIn){
             recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
             if (recv_buff == NULL){
                 syslog((LOG_USER | LOG_INFO),"Error resetting recv buffer size!");
+                threadParams->thread_complete = 1;
                 pthread_exit(NULL);
             }
                  
@@ -206,8 +211,9 @@ void *connectionThreadWork(void *threadParamsIn){
             int f2sRes = write_file_to_socket(threadParams->packetdata_fd, threadParams->connection_fd);
             pthread_mutex_unlock(&pdfile_lock);       
             if (f2sRes == -1){
-            	syslog((LOG_USER | LOG_INFO),"Error writting file to socket!");
-            	pthread_exit(NULL);
+                syslog((LOG_USER | LOG_INFO),"Error writting file to socket!");
+                threadParams->thread_complete = 1;
+                pthread_exit(NULL);
             }
         }
     }
@@ -327,6 +333,9 @@ int main(int argc, char*argv[]){
      int num_connections = 0;
      SLIST_HEAD(slisthead,threadParams_s) head = SLIST_HEAD_INITIALIZER(head);
      SLIST_INIT(&head);
+     //Used for joining dead threads/iterating over threads
+     threadParams_t *curThread = NULL;
+     threadParams_t *tmpPtr = NULL;
      
      while(!signal_flag){ //forever wait for connections
          //reference: "https://beej.us/guide/bgnet: pg. 28"
@@ -373,21 +382,35 @@ int main(int argc, char*argv[]){
              }
              
              num_connections++;
+             syslog((LOG_USER | LOG_INFO),"Current Number of Connections: %d",num_connections);
              
-             //Join dead threads 
-             threadParams_t *curThread = NULL;
-             threadParams_t *tmpPtr = NULL;
-                         
+             //Join dead threads           
              SLIST_FOREACH_SAFE(curThread, &head, qEntries, tmpPtr){
                  if (curThread->thread_complete){
                      syslog((LOG_USER | LOG_INFO),"Killing connection thread");
                      pthread_join(curThread->thread,NULL); //TODO:might want to check retval rather than NULL
                      SLIST_REMOVE(&head, curThread, threadParams_s, qEntries);
                      free(curThread);
+                     num_connections --;
+                     syslog((LOG_USER | LOG_INFO),"Current Number of Connections: %d",num_connections);
                  }
              }     
          }
     }
+    
+    
+   //Wait for threads to finish up 
+   SLIST_FOREACH_SAFE(curThread, &head, qEntries, tmpPtr){
+         syslog((LOG_USER | LOG_INFO),"Killing connection thread");
+         pthread_kill(curThread->thread,SIGINT);
+         pthread_join(curThread->thread,NULL); //TODO:might want to check retval rather than NULL
+         SLIST_REMOVE(&head, curThread, threadParams_s, qEntries);
+         free(curThread);
+         num_connections--;
+         syslog((LOG_USER | LOG_INFO),"Current Number of Connections: %d",num_connections);
+    }
+
+
     
     close(packetdata_fd);
     //remove the data file
