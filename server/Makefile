@@ -4,7 +4,7 @@ all: aesdsocket
 default: aesdsocket
 
 aesdsocket: aesdsocket.o
-	$(CROSS_COMPILE)$(CC) aesdsocket.o -o aesdsocket
+	$(CROSS_COMPILE)$(CC) aesdsocket.o -o aesdsocket -lpthread
 
 aesdsocket.o: aesdsocket.c
 	$(CROSS_COMPILE)$(CC) -c aesdsocket.c -o aesdsocket.o -Wall -Werror
