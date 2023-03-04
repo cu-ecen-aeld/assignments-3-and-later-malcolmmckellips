@@ -20,6 +20,9 @@
 #include <signal.h>
 #include <pthread.h>
 #include "freebsdqueue.h"
+#include <sys/time.h>
+
+#define MAX_TIMESTR_SIZE 100
 
 //#define RECVBUFF_SIZE 100 //this will be the size per block of recv buffer, if it fills up new block of this size will be added on
 //Note: Current implementation instead recv's byte at a time to simplify recv logic
@@ -28,11 +31,51 @@
 //Reference for signal handler strategy with flag: https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 static volatile sig_atomic_t signal_flag = 0; //this flag will be set if sigterm or sigint are received
 pthread_mutex_t pdfile_lock; //mutex for aesdsocketdata file (packet data file) protection
+int g_datafd; //global file descriptor to allow timestamp interval timer to access data file
 
-//-------------------------------------Signal Handler-------------------------------------
+//-------------------------------------Signal Handlers-------------------------------------
 void handle_sigint_sigterm(int sigval){
     syslog((LOG_USER | LOG_INFO),"Caught signal, exiting");
     signal_flag = 1;
+}
+
+//time stamp alarm handler (handle sigalrm)
+void ts_alarm_handler(int signo){
+    time_t time_now;
+    time_t ret = time(&time_now);
+    if(ret == -1){
+        syslog((LOG_USER | LOG_INFO),"Error getting timestamp\r\n");
+        return;
+    }
+
+    struct tm tm_now;
+
+
+    localtime_r(&time_now,&tm_now);
+    //2822 format: "%a, %d %b %Y %T %z"
+    //weekday, day of month, month, year, 24hr time (H:M:S), numeric timezone
+    char time_buff[MAX_TIMESTR_SIZE];
+    size_t time_str_size = strftime(time_buff,MAX_TIMESTR_SIZE,"timestamp:%a, %d %b %Y %T %z\n",&tm_now);
+    if (!time_str_size){
+        syslog((LOG_USER | LOG_INFO),"timestamp not generated\r\n");
+        return;
+    }
+
+    ssize_t bytes_written = 0;
+    while (bytes_written != time_str_size){
+        
+        pthread_mutex_lock(&pdfile_lock);
+        bytes_written = write(g_datafd, time_buff,(time_str_size-bytes_written));
+        pthread_mutex_unlock(&pdfile_lock);
+        
+        if (bytes_written == -1){
+            syslog((LOG_USER | LOG_INFO),"Error writing timestamp!");
+            return;
+        }
+    }
+
+
+    return;
 }
 
 //-------------------------Thread Organization and Functions----------------------
@@ -187,7 +230,7 @@ void *connectionThreadWork(void *threadParamsIn){
             while (bytes_written != recv_buff_size){
                 
                 pthread_mutex_lock(&pdfile_lock);
-                bytes_written = write(threadParams->packetdata_fd, recv_buff,recv_buff_size);
+                bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
                 pthread_mutex_unlock(&pdfile_lock);
                 
                 if (bytes_written == -1){
@@ -241,6 +284,22 @@ int main(int argc, char*argv[]){
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
     
+    //Signal handler for sigalrm and 10 second interval timer setup
+    signal(SIGALRM, ts_alarm_handler);
+
+    struct itimerval ts_delay;
+    ts_delay.it_value.tv_sec        = 10;  //first delay
+    ts_delay.it_value.tv_usec       = 0;   //first dalay us
+    ts_delay.it_interval.tv_sec     = 10;  //repeated delay
+    ts_delay.it_interval.tv_usec    = 0;   //repeated delay us
+
+    tzset();
+
+    int ret = setitimer(ITIMER_REAL, &ts_delay, NULL);
+    if (ret){
+        perror("settimer failure");
+        return 1;
+    }
     
     //References: AESD course slides "Sockets pg. 15: Getting Sockaddr", "https://beej.us/guide/bgnet: pg. 21"
     //The below was pulled almost directly from above resources
@@ -325,6 +384,7 @@ int main(int argc, char*argv[]){
          syslog((LOG_USER | LOG_INFO),"Errror creating/opening temp data file");
          return -1;
      }
+     g_datafd = packetdata_fd;
     
     //Initialize mutex for packet data file
     pthread_mutex_init(&pdfile_lock,NULL);
