@@ -283,23 +283,7 @@ int main(int argc, char*argv[]){
     sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
-    
-    //Signal handler for sigalrm and 10 second interval timer setup
-    signal(SIGALRM, ts_alarm_handler);
-
-    struct itimerval ts_delay;
-    ts_delay.it_value.tv_sec        = 10;  //first delay
-    ts_delay.it_value.tv_usec       = 0;   //first dalay us
-    ts_delay.it_interval.tv_sec     = 10;  //repeated delay
-    ts_delay.it_interval.tv_usec    = 0;   //repeated delay us
-
-    tzset();
-
-    int ret = setitimer(ITIMER_REAL, &ts_delay, NULL);
-    if (ret){
-        perror("settimer failure");
-        return 1;
-    }
+   
     
     //References: AESD course slides "Sockets pg. 15: Getting Sockaddr", "https://beej.us/guide/bgnet: pg. 21"
     //The below was pulled almost directly from above resources
@@ -385,9 +369,29 @@ int main(int argc, char*argv[]){
          return -1;
      }
      g_datafd = packetdata_fd;
+
     
     //Initialize mutex for packet data file
     pthread_mutex_init(&pdfile_lock,NULL);
+
+
+    //Signal handler for sigalrm and 10 second interval timer setup
+    //Note only register this AFTER datafile has opened.
+    signal(SIGALRM, ts_alarm_handler);
+
+    struct itimerval ts_delay;
+    ts_delay.it_value.tv_sec        = 0;  //first delay: 
+    ts_delay.it_value.tv_usec       = 1;   //first dalay us:its useful to timestamp right at start of prog, but if set to 0 will disable timer
+    ts_delay.it_interval.tv_sec     = 10;  //repeated delay
+    ts_delay.it_interval.tv_usec    = 0;   //repeated delay us
+
+    tzset();
+
+    int ret = setitimer(ITIMER_REAL, &ts_delay, NULL);
+    if (ret){
+        perror("settimer failure");
+        return 1;
+    }
 
      //Set up connection LL
      int num_connections = 0;
