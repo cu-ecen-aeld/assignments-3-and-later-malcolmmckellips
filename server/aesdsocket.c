@@ -380,8 +380,8 @@ int main(int argc, char*argv[]){
     signal(SIGALRM, ts_alarm_handler);
 
     struct itimerval ts_delay;
-    ts_delay.it_value.tv_sec        = 0;  //first delay: 
-    ts_delay.it_value.tv_usec       = 1;   //first dalay us:its useful to timestamp right at start of prog, but if set to 0 will disable timer
+    ts_delay.it_value.tv_sec        = 10;  //first delay: 
+    ts_delay.it_value.tv_usec       = 0;   //first dalay us
     ts_delay.it_interval.tv_sec     = 10;  //repeated delay
     ts_delay.it_interval.tv_usec    = 0;   //repeated delay us
 
