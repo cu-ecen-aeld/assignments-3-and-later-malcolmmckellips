@@ -1,5 +1,5 @@
-#A7 Kernel Oops analysis
-##Output from: echo "hello_world" > /dev/faulty  
+# A7 Kernel Oops analysis
+## Output from: echo "hello_world" > /dev/faulty  
 Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000  
 Mem abort info:  
   ESR = 0x96000045  
@@ -43,7 +43,7 @@ Call trace:
 Code: d2800001 d2800000 d503233f d50323bf (b900003f)   
 ---[ end trace dc6e8c5b34548969 ]---  
 
-##Analysis
+## Analysis
 * Immediately, in the first line we are told in plain english that a null (0) pointer was dereferenced which is the heart of the issue with this module. 
 * Next, we are given the status of some Arm Architecture Registers (https://developer.arm.com/documentation/ddi0601/2022-03/AArch64-Registers) at the time that the oops occurred
 * Next we are given some general metadata including page info, cpu info, and linked mmodules. We are also told explicitly that the issue was an internal kernel oops.
