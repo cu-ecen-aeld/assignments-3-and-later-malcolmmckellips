@@ -1,4 +1,13 @@
 #include "systemcalls.h"
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+#define _XOPEN_SOURCE
+#include <stdlib.h>
+
+#include <sys/stat.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,7 +25,21 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+    int sys_ret; 
+    	
+    sys_ret = system(cmd);
+    if (sys_ret == -1){
+    	printf("Error invoking %s command with system!\r\n",cmd);
+    	return false;
+    }
+    	
+    else
+    	if (sys_ret != 0){
+    		printf("Command %s invoked with system returned non-zero value\r\n",cmd);
+    		return false;
+    	}
+    		
+    
     return true;
 }
 
@@ -45,9 +68,6 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
 /*
  * TODO:
@@ -57,10 +77,43 @@ bool do_exec(int count, ...)
  *   (first argument to execv), and use the remaining arguments
  *   as second argument to the execv() command.
  *
-*/
+*/ 
+    
+    //Reference: Linux System Programming page 161 
+    pid_t pid; 
+    int status; 
+    
+    pid = fork();
+    if (pid == -1){
+    	printf("Issue forking to create child process\r\n");
+    	va_end(args);
+    	return false;
+    }
+    
+    else if (pid ==0){
+    	//we are the child
+    	execv(command[0],command);
+    	
+    	printf("Issue creating process with execv\r\n");
+    	exit (-1); //should not return from execv if successful
+    }
+    
+    //we're parent if we made it here
+    if (waitpid (pid, &status, 0) == -1){
+    	printf("Error while waiting for child process\r\n");
+    	va_end(args);
+    	return false;
+    }
 
+    else if (WIFEXITED (status)){
+    	if (WEXITSTATUS(status) != 0){
+    		printf("Child process terminated with non-zero exit code!\r\n");
+    		va_end(args);
+    		return false;
+    	}
+    }	
+    
     va_end(args);
-
     return true;
 }
 
@@ -80,10 +133,6 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
-
 
 /*
  * TODO
@@ -93,7 +142,65 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
  *
 */
 
-    va_end(args);
+    int out_fd = open(outputfile, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (out_fd == -1){
+    	printf("Error, issue opening output file!\r\n");
+    	va_end(args);
+    	return false;
+    }
+    	
+    int pid; 
+    int status; 
+    pid = fork();
+    
+    if (pid == -1){
+    	printf("Issue forking to create child process\r\n");
+    	va_end(args);
+    	return false;
+    }
+    
+    else if (pid == 0){
+    	//we are the child
+    	
+    	int dup_ret = 0; 
+    	
+    	dup_ret = dup2(out_fd, 1); //make file descriptor of our out_file mimic that of stdout (fd=1)
+    	if (dup_ret == -1){
+    		printf("Error redirecting stdout\r\n");
+    		va_end(args);
+    		return false;
+    	}
+    	
+    	
+    	execv(command[0],command);
+    	
+    	printf("Issue creating process with execv\r\n");
+    	exit (-1); //should not return from execv if successful
+    }
+    
+    if (waitpid (pid, &status, 0) == -1){
+    	printf("Error while waiting for child process\r\n");
+    	va_end(args);
+    	return false;
+    }
+    
+    
+    //we're parent if we made it here
+    close(out_fd);
+    if (waitpid (pid, &status, 0) == -1){
+    	printf("Error while waiting for child process\r\n");
+    	va_end(args);
+    	return false;
+    }
 
+    else if (WIFEXITED (status)){
+    	if (WEXITSTATUS(status) != 0){
+    		printf("Child process terminated with non-zero exit code!\r\n");
+    		va_end(args);
+    		return false;
+    	}
+    }	
+    
+    va_end(args);
     return true;
 }
