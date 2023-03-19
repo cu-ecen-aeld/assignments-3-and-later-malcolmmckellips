@@ -32,14 +32,15 @@ struct aesd_dev aesd_device;
 
 int aesd_open(struct inode *inode, struct file *filp)
 {
-    PDEBUG("open");
-    /**
-     * TODO: handle open
-     */
 
     //Linux device drivers ch3 pg. 58
     struct aesd_dev *dev;
     dev = container_of(inode->i_cdev, struct aesd_dev, cdev);
+
+    PDEBUG("open");
+    /**
+     * TODO: handle open
+     */
 
     filp->private_data = dev;
 
@@ -59,16 +60,19 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
                 loff_t *f_pos)
 {
         ssize_t retval = 0;
+        struct aesd_dev *dev = filp->private_data;
+        ssize_t offs_in_found = 0; //will be the offset in the found command that fpos points to 
+        struct aesd_buffer_entry *found_entry;
+        ssize_t bytes_to_read = 0;
+
         PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
         /**
          * TODO: handle read
          */
 
-        struct aesd_dev *dev = filp->private_data;
-
         //Find the entry and offset within that entry corresponding to f_pos
-        ssize_t offs_in_found = 0; //will be the offset in the found command that fpos points to 
-        struct aesd_buffer_entry *found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&(dev->circ_buff), *f_pos, &offs_in_found);
+
+        found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&(dev->circ_buff), *f_pos, &offs_in_found);
 
         if (found_entry == NULL){
             retval = 0; 
@@ -76,7 +80,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         }
 
         //Read from fpos to end of entry and update fpos
-        ssize_t bytes_to_read = ((found_entry->size) - offs_in_found);
+       bytes_to_read = ((found_entry->size) - offs_in_found);
         if ( copy_to_user(buf, ((found_entry->buffptr) + offs_in_found), bytes_to_read) ){
             retval = -EFAULT;
             goto read_end;
@@ -94,14 +98,16 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
         ssize_t retval = -ENOMEM;
+        struct aesd_dev *dev = filp->private_data;
+        char * new_write;
+        const char * old_buffer;
+
         PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
         /**
          * TODO: handle write
          */
-        struct aesd_dev *dev = filp->private_data;
 
-
-        char * new_write = (char *)kmalloc(count, GFP_KERNEL);
+        new_write = (char *)kmalloc(count, GFP_KERNEL);
         if (!new_write){
             retval = -ENOMEM;
             kfree(new_write);
@@ -131,7 +137,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         */
 
         //Add entry and if it replaced something in the circular buffer, free the old value...
-        const char * old_buffer = aesd_circular_buffer_add_entry(&(dev->circ_buff), &(dev->current_entry));
+        old_buffer = aesd_circular_buffer_add_entry(&(dev->circ_buff), &(dev->current_entry));
         if (old_buffer)
             kfree(old_buffer);
 
@@ -201,6 +207,9 @@ int aesd_init_module(void)
 
 void aesd_cleanup_module(void)
 {
+    uint8_t index;
+    struct aesd_buffer_entry *entry;
+
     dev_t devno = MKDEV(aesd_major, aesd_minor);
 
     cdev_del(&aesd_device.cdev);
@@ -210,10 +219,9 @@ void aesd_cleanup_module(void)
      */
 
     //Free any dynamically allocated complete writes in device circular buffer
-    uint8_t index;
-    struct aesd_buffer_entry *entry;
     AESD_CIRCULAR_BUFFER_FOREACH(entry,&(aesd_device.circ_buff),index) {
         kfree(entry->buffptr);
+    }
 
     //Free any dynamically allocated partial write in current entry
     kfree(aesd_device.current_entry.buffptr);
