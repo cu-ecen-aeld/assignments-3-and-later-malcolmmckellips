@@ -71,17 +71,22 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 * new start location.
 * Any necessary locking must be handled by the caller
 * Any memory referenced in @param add_entry must be allocated by and/or must have a lifetime managed by the caller.
+* return null or if an existing entry was replaced, return pointer to buffer of entry that was replaced for freeing by caller
 */
-void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
+const char *aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
 
     struct aesd_buffer_entry * circ_buff = buffer->entry;
+
+    const char *old_entry_buffer = circ_buff[buffer->in_offs].buffptr;
+
     circ_buff[buffer->in_offs] = *add_entry;
 
     if (buffer->full){
-        //Buffer is full, discard old value. In full case that old value was next to be consumed so also update out_ffs
+        //Buffer is full, return old value. In full case that old value was next to be consumed so also update out_ffs
         buffer->in_offs =  (buffer->in_offs+1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
         buffer->out_offs = (buffer->out_offs+1)%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        return old_entry_buffer;
     }
     else{
         //Standard case when not yet full: simply add at the in_offs and advance, remember to update full var.
@@ -90,7 +95,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
             buffer->full = true;
     }
 
-    return;
+    return NULL;
 }
 
 /**
