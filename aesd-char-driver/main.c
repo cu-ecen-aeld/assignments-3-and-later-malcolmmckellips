@@ -125,7 +125,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //For now, simple implementation assuming that every write is a complete write with a \n at the end.
 
         //Free old current entry and set current entry to our new current entry
-        kfree(dev->current_entry.buffptr);
+        //kfree(dev->current_entry.buffptr);
+        //NO!!! Don't free old current entry. it could have been moved into circular buffer.
         dev->current_entry.buffptr = new_write;
         dev->current_entry.size = count; //these will become a different value when we get more complicated
         retval = count;
@@ -223,8 +224,9 @@ void aesd_cleanup_module(void)
         kfree(entry->buffptr);
     }
 
-    //Free any dynamically allocated partial write in current entry
-    kfree(aesd_device.current_entry.buffptr);
+    // //Free any dynamically allocated partial write in current entry
+    //WARNING: Introduced a double free bug in the simple case. Need to be more clever about this.
+    // kfree(aesd_device.current_entry.buffptr);
 
     //deinitialize lock
 
