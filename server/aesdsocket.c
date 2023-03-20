@@ -249,13 +249,18 @@ void *connectionThreadWork(void *threadParamsIn){
          if (newline_recv){
              //if we've reached here, its time to write to file, newline recvd
             ssize_t bytes_written = 0;
+
             while (bytes_written != recv_buff_size){
                 #if USE_AESD_CHAR_DEVICE == 0
-                pthread_mutex_lock(&pdfile_lock);
+                    pthread_mutex_lock(&pdfile_lock);
+                #else 
+                    threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
                 #endif
                 bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
                 #if USE_AESD_CHAR_DEVICE == 0
-                pthread_mutex_unlock(&pdfile_lock);
+                    pthread_mutex_unlock(&pdfile_lock);
+                #else
+                    close(threadParams->packetdata_fd);
                 #endif
                 
                 if (bytes_written == -1){
@@ -276,12 +281,17 @@ void *connectionThreadWork(void *threadParamsIn){
             //write the file to the connection
             //Note: might want more granular locking within the function, but since file pos will be moved throughout, it might be best to lock entire function.
             #if USE_AESD_CHAR_DEVICE == 0
-            pthread_mutex_lock(&pdfile_lock);
+                pthread_mutex_lock(&pdfile_lock);
+            #else
+                threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
             #endif
             int f2sRes = write_file_to_socket(threadParams->packetdata_fd, threadParams->connection_fd);
             #if USE_AESD_CHAR_DEVICE == 0
-            pthread_mutex_unlock(&pdfile_lock);       
+                pthread_mutex_unlock(&pdfile_lock);
+            #else
+                close(threadParams->packetdata_fd);
             #endif
+
             if (f2sRes == -1){
                 syslog((LOG_USER | LOG_INFO),"Error writting file to socket!");
                 threadParams->thread_complete = 1;
@@ -394,19 +404,20 @@ int main(int argc, char*argv[]){
      //Open or Create file for input data
      #if USE_AESD_CHAR_DEVICE == 1   
         syslog((LOG_USER | LOG_INFO),"Using char driver rather than data file");
-        int packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+        //int packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
     #else
         syslog((LOG_USER | LOG_INFO),"Using data file rather than char driver");
         int packetdata_fd = open("/var/tmp/aesdsocketdata", (O_RDWR | O_CREAT | O_APPEND), 0644);
-    #endif
+    
      
      if (packetdata_fd == -1){
          syslog((LOG_USER | LOG_INFO),"Errror creating/opening temp data file");
          return -1;
      }
+
      g_datafd = packetdata_fd;
 
-    
+    #endif
     //Initialize mutex for packet data file
      #if USE_AESD_CHAR_DEVICE == 0
     pthread_mutex_init(&pdfile_lock,NULL);
@@ -462,8 +473,11 @@ int main(int argc, char*argv[]){
          }
          else{
              //successful connection!
+            #if USE_AESD_CHAR_DEVICE == 0
              threadParams_t *newThreadParams = getThreadParams(client_addr,packetdata_fd, connection_fd);
-             
+            #else
+             threadParams_t *newThreadParams = getThreadParams(client_addr,-1, connection_fd);
+            #endif
              if (newThreadParams == NULL){
                 syslog((LOG_USER | LOG_INFO),"Errror initializing thread parameters");
                 return -1;
@@ -516,8 +530,9 @@ int main(int argc, char*argv[]){
 
 
     
-    close(packetdata_fd);
     #if USE_AESD_CHAR_DEVICE == 0
+    close(packetdata_fd);
+    
     //remove the data file
     if (remove ("/var/tmp/aesdsocketdata") !=0 ){
         syslog((LOG_USER | LOG_INFO),"Issue deleting data file!");
