@@ -108,6 +108,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         struct aesd_dev *dev = filp->private_data;
         char * new_write;
         const char * old_buffer;
+        char * full_buffer; //will hold old_buffer + new_write when \n received.
+        char * newl_ptr; //Will be a pointer to the newline char in a new write if found
+        ssize_t len_cmd; //Length up to and including the newline if a newline recvd
+        ssize_t full_buffer_size; //size of full buffer when we are about to write it to circular buffer
+        ssize_t i;
 
         PDEBUG("write %zu bytes with offset %lld",count,*f_pos);
         /**
@@ -139,22 +144,76 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //Free old current entry and set current entry to our new current entry
         //kfree(dev->current_entry.buffptr);
         //NO!!! Don't free old current entry. it could have been moved into circular buffer.
-        dev->current_entry.buffptr = new_write;
-        dev->current_entry.size = count; //these will become a different value when we get more complicated
-        retval = count;
 
-        /*
-        if(strchr(new_write, '\n')){
+        //will return pointer to where the newline char is in new_write
+        newl_ptr = strchr(new_write, '\n');
+
+        if(newl_ptr){
+            //new line recvd, we must write to buffer all values upto and including newline
+            len_cmd = (ssize_t)(newl_ptr - new_write); 
+            len_cmd += 1; // +1 because 0 indexed (might need another +1 for null terminator. hopefully read takes care of this for us)
+
+            full_buffer_size = len_cmd + dev->current_entry.size; //the new full buffer to save in circ buff contains new write until newline plus old saved chars
+
+            full_buffer = (char *)kmalloc( full_buffer_size, GFP_KERNEL);
+
+            //Copy all bytes from previous writes in current_entry to the full buffer for the circbuff
+            if (dev->current_entry.buffptr != NULL){
+                for (i = 0 ; i < dev->current_entry.size; i++){
+                    full_buffer[i] = dev->current_entry.buffptr[i];
+                }
+            }
+
+            if (new_write != NULL){
+                for (i = 0; i < len_cmd; i++){
+                    full_buffer[(dev->current_entry.size) + i] = new_write[i];
+                }
+            }
+
+            //Now full_buffer is set up correctly.
+            //can free old buffptr for current entry and newwrite(it should not be present in the circ buff yet and its contents are now in full ptr)
+            kfree(dev->current_entry.buffptr);
+            kfree(new_write);
+
+            dev->current_entry.buffptr = full_buffer;
+            dev->current_entry.size = full_buffer_size;
+
+            //Add entry and if it replaced something in the circular buffer, free the old full buffer value...
+            old_buffer = aesd_circular_buffer_add_entry(&(dev->circ_buff), &(dev->current_entry));
+            if (old_buffer)
+                kfree(old_buffer);
+
             //if we are writing to buffer, set current_entry buffer to null so that it won't be double freed in module cleanup
+            dev->current_entry.buffptr = NULL;
+            dev->current_entry.size = 0; //reset size to 0 for next write
+            retval = len_cmd;
         }
-        */
+        else{
+            //simply append new bytes to current entry
+            full_buffer_size = dev->current_entry.size + count;
+            full_buffer = (char *)kmalloc( full_buffer_size, GFP_KERNEL);
 
-        //Add entry and if it replaced something in the circular buffer, free the old value...
-        old_buffer = aesd_circular_buffer_add_entry(&(dev->circ_buff), &(dev->current_entry));
-        if (old_buffer)
-            kfree(old_buffer);
+            //Copy all bytes from previous writes in current_entry to the full buffer for the circbuff
+            if (dev->current_entry.buffptr != NULL){
+                for (i = 0 ; i < dev->current_entry.size; i++){
+                    full_buffer[i] = dev->current_entry.buffptr[i];
+                }
+            }
 
+            if (new_write != NULL){
+                for (i = 0; i < count; i++){
+                    full_buffer[(dev->current_entry.size) + i] = new_write[i];
+                }
+            }
 
+            //Now full_buffer is set up correctly. Can free old buffptr and newwrite as their contents is in full buffer
+            kfree(dev->current_entry.buffptr);
+            kfree(new_write);
+
+            dev->current_entry.buffptr = full_buffer;
+            dev->current_entry.size = full_buffer_size;
+            retval = count;
+        }
 
     write_end:
         //unlock lock here...
