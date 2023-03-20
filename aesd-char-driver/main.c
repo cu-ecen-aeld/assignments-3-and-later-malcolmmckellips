@@ -82,11 +82,18 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
         if (found_entry == NULL){
             retval = 0; 
+            //we don't have seek capability yet to move to the start of the buffer after a read is finished and we are doing another.
+            //So assume that if the reader has gotten here, they have already read the entire file and are trying one more read checking if bytes returned was 0. 
+            //reset f_pos according to aesd_socket application's necessary operation. 
+            *f_pos = 0; //When we have seek implemented, or if our char driver had other usecases we could remove this. 
             goto read_end;
         }
 
         //Read from fpos to end of entry and update fpos
-       bytes_to_read = ((found_entry->size) - offs_in_found);
+        bytes_to_read = ((found_entry->size) - offs_in_found);
+        if (count < bytes_to_read)
+            bytes_to_read = count;
+
         if ( copy_to_user(buf, ((found_entry->buffptr) + offs_in_found), bytes_to_read) ){
             retval = -EFAULT;
             goto read_end;
@@ -98,6 +105,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     read_end:
         //unlock lock here...
         mutex_unlock(&dev->lock);
+        PDEBUG("read returning with %zu bytes read", retval);
+        PDEBUG("filepos after read: %lld",*f_pos);
         return retval;
 }
 
@@ -186,7 +195,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             //if we are writing to buffer, set current_entry buffer to null so that it won't be double freed in module cleanup
             dev->current_entry.buffptr = NULL;
             dev->current_entry.size = 0; //reset size to 0 for next write
-            retval = len_cmd;
+            retval = len_cmd; 
         }
         else{
             //simply append new bytes to current entry

@@ -23,6 +23,7 @@
 #include <sys/time.h>
 
 #define MAX_TIMESTR_SIZE 100
+#define USE_AESD_CHAR_DEVICE (1)
 
 //#define RECVBUFF_SIZE 100 //this will be the size per block of recv buffer, if it fills up new block of this size will be added on
 //Note: Current implementation instead recv's byte at a time to simplify recv logic
@@ -39,6 +40,7 @@ void handle_sigint_sigterm(int sigval){
     signal_flag = 1;
 }
 
+#if USE_AESD_CHAR_DEVICE == 0
 //time stamp alarm handler (handle sigalrm)
 void ts_alarm_handler(int signo){
     time_t time_now;
@@ -77,6 +79,8 @@ void ts_alarm_handler(int signo){
 
     return;
 }
+#endif
+
 
 //-------------------------Thread Organization and Functions----------------------
 struct threadParams_s{
@@ -116,18 +120,28 @@ struct threadParams_s* getThreadParams(struct sockaddr_storage client_addr, int 
 //Note, assumes that fd is open and connection_fd is connected
 int write_file_to_socket(int fd, int connection_fd){
     //TODO: might want to add EINTR error check in case seek is interrupted by signal
+    #if USE_AESD_CHAR_DEVICE == 0
     off_t old_pos = lseek(fd,0,SEEK_CUR);
+    lseek(fd, 0 , SEEK_CUR);
+
     if (old_pos == (off_t)-1){
-         syslog((LOG_USER | LOG_INFO),"Error in seek");
+         syslog((LOG_USER | LOG_INFO),"Error in old seek");
          return -1;
     }
+
+
+    lseek(fd, 0, SEEK_SET);
+    syslog((LOG_USER | LOG_INFO),"Setting pos to 0");
+
     //now read from the start of the file
     off_t new_pos = lseek(fd,0,SEEK_SET);
-    if (new_pos == (off_t)-1){
-         syslog((LOG_USER | LOG_INFO),"Error in seek");
+    if (new_pos == (off_t)(-1)) {
+         syslog((LOG_USER | LOG_INFO),"Error in new seek");
          return -1;
     }    
+    #endif
     
+
     //write character by character from file to socket. likely inefficient, but easy to wrap my head around
     char read_buff[1];
     ssize_t bytes_read;
@@ -161,11 +175,13 @@ int write_file_to_socket(int fd, int connection_fd){
     }
     
     //return the file position to where it was...
+    #if USE_AESD_CHAR_DEVICE == 0
     if (old_pos == (off_t)-1){
-         syslog((LOG_USER | LOG_INFO),"Error in seek");
+         syslog((LOG_USER | LOG_INFO),"Error in resetting seek");
          return -1;
     }
-    
+    #endif
+
     return 0;    
 }
 
@@ -363,7 +379,14 @@ int main(int argc, char*argv[]){
      }
          
      //Open or Create file for input data
-     int packetdata_fd = open("/var/tmp/aesdsocketdata", (O_RDWR | O_CREAT | O_APPEND), 0644);
+     #if USE_AESD_CHAR_DEVICE == 1   
+        syslog((LOG_USER | LOG_INFO),"Using char driver rather than data file");
+        int packetdata_fd = open("/dev/aesdchar", (O_RDWR | O_CREAT | O_APPEND), 0644);
+    #else
+        syslog((LOG_USER | LOG_INFO),"Using data file rather than char driver");
+        int packetdata_fd = open("/var/tmp/aesdsocketdata", (O_RDWR | O_CREAT | O_APPEND), 0644);
+    #endif
+     
      if (packetdata_fd == -1){
          syslog((LOG_USER | LOG_INFO),"Errror creating/opening temp data file");
          return -1;
@@ -377,6 +400,7 @@ int main(int argc, char*argv[]){
 
     //Signal handler for sigalrm and 10 second interval timer setup
     //Note only register this AFTER datafile has opened.
+    #if USE_AESD_CHAR_DEVICE == 0
     signal(SIGALRM, ts_alarm_handler);
 
     struct itimerval ts_delay;
@@ -392,6 +416,7 @@ int main(int argc, char*argv[]){
         perror("settimer failure");
         return 1;
     }
+    #endif
 
      //Set up connection LL
      int num_connections = 0;
@@ -477,11 +502,13 @@ int main(int argc, char*argv[]){
 
     
     close(packetdata_fd);
+    #if USE_AESD_CHAR_DEVICE == 0
     //remove the data file
     if (remove ("/var/tmp/aesdsocketdata") !=0 ){
         syslog((LOG_USER | LOG_INFO),"Issue deleting data file!");
         return -1;
     } 
+    #endif
     close(socket_fd);
     
     return 0;    
