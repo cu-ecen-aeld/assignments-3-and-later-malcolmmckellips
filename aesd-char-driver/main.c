@@ -21,6 +21,7 @@
 #include <linux/slab.h>  //added by malcolm
 #include <linux/uaccess.h> //added by malcolm
 #include <linux/fs.h> // file_operations
+//#include <linux/mutex.h> //added by malcolm (maybe unncessary. scull used mutex without it...)
 #include "aesdchar.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
@@ -70,6 +71,11 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
          * TODO: handle read
          */
 
+        //Reference: scull main.c
+        //return if mutex wait interrupted
+        if (mutex_lock_interruptible(&dev->lock))
+            return -ERESTARTSYS;
+
         //Find the entry and offset within that entry corresponding to f_pos
 
         found_entry = aesd_circular_buffer_find_entry_offset_for_fpos(&(dev->circ_buff), *f_pos, &offs_in_found);
@@ -91,6 +97,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
     read_end:
         //unlock lock here...
+        mutex_unlock(&dev->lock);
         return retval;
 }
 
@@ -106,6 +113,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         /**
          * TODO: handle write
          */
+
+        //Reference: scull main.c
+        //return if mutex wait interrupted
+        if (mutex_lock_interruptible(&dev->lock))
+            return -ERESTARTSYS;
 
         new_write = (char *)kmalloc(count, GFP_KERNEL);
         if (!new_write){
@@ -133,7 +145,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
         /*
         if(strchr(new_write, '\n')){
-
+            //if we are writing to buffer, set current_entry buffer to null so that it won't be double freed in module cleanup
         }
         */
 
@@ -142,8 +154,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         if (old_buffer)
             kfree(old_buffer);
 
+
+
     write_end:
         //unlock lock here...
+        mutex_unlock(&dev->lock);
         //might want a kfree of new_write here in case failure occurs, do not allow memory leak
         return retval;
 }
@@ -196,6 +211,7 @@ int aesd_init_module(void)
     //aesd_device.current_entry.size = 0;
 
     //initialize the lock
+    mutex_init(&aesd_device.lock);
 
     result = aesd_setup_cdev(&aesd_device);
 
@@ -229,6 +245,7 @@ void aesd_cleanup_module(void)
     // kfree(aesd_device.current_entry.buffptr);
 
     //deinitialize lock
+    mutex_destroy(&aesd_device.lock);
 
     unregister_chrdev_region(devno, 1);
 }

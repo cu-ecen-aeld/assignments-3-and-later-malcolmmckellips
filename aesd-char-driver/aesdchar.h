@@ -34,6 +34,7 @@ struct aesd_dev
     struct aesd_buffer_entry current_entry; //current entry in the circular buffer for write until \n 
 
     //lock
+    struct mutex lock;
 
     struct cdev cdev;     /* Char device structure      */
 };
