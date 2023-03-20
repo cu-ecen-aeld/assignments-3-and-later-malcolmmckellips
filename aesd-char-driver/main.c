@@ -301,7 +301,7 @@ void aesd_cleanup_module(void)
 
     // //Free any dynamically allocated partial write in current entry
     //WARNING: Introduced a double free bug in the simple case. Need to be more clever about this.
-    // kfree(aesd_device.current_entry.buffptr);
+    kfree(aesd_device.current_entry.buffptr);
 
     //deinitialize lock
     mutex_destroy(&aesd_device.lock);
