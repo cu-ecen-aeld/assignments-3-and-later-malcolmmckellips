@@ -85,7 +85,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
             //we don't have seek capability yet to move to the start of the buffer after a read is finished and we are doing another.
             //So assume that if the reader has gotten here, they have already read the entire file and are trying one more read checking if bytes returned was 0. 
             //reset f_pos according to aesd_socket application's necessary operation. 
-            *f_pos = 0; //When we have seek implemented, or if our char driver had other usecases we could remove this. 
+            //*f_pos = 0; //When we have seek implemented, or if our char driver had other usecases we could remove this. 
             goto read_end;
         }
 
