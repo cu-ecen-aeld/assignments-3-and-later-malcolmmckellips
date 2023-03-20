@@ -31,7 +31,9 @@
 //-------------------------------------Globals-------------------------------------
 //Reference for signal handler strategy with flag: https://www.jmoisio.eu/en/blog/2020/04/20/handling-signals-correctly-in-a-linux-application/
 static volatile sig_atomic_t signal_flag = 0; //this flag will be set if sigterm or sigint are received
+#if USE_AESD_CHAR_DEVICE == 0
 pthread_mutex_t pdfile_lock; //mutex for aesdsocketdata file (packet data file) protection
+#endif
 int g_datafd; //global file descriptor to allow timestamp interval timer to access data file
 
 //-------------------------------------Signal Handlers-------------------------------------
@@ -66,9 +68,13 @@ void ts_alarm_handler(int signo){
     ssize_t bytes_written = 0;
     while (bytes_written != time_str_size){
         
+        #if USE_AESD_CHAR_DEVICE == 0
         pthread_mutex_lock(&pdfile_lock);
+        #endif
         bytes_written = write(g_datafd, time_buff,(time_str_size-bytes_written));
+        #if USE_AESD_CHAR_DEVICE == 0
         pthread_mutex_unlock(&pdfile_lock);
+        #endif
         
         if (bytes_written == -1){
             syslog((LOG_USER | LOG_INFO),"Error writing timestamp!");
@@ -244,10 +250,13 @@ void *connectionThreadWork(void *threadParamsIn){
              //if we've reached here, its time to write to file, newline recvd
             ssize_t bytes_written = 0;
             while (bytes_written != recv_buff_size){
-                
+                #if USE_AESD_CHAR_DEVICE == 0
                 pthread_mutex_lock(&pdfile_lock);
+                #endif
                 bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
+                #if USE_AESD_CHAR_DEVICE == 0
                 pthread_mutex_unlock(&pdfile_lock);
+                #endif
                 
                 if (bytes_written == -1){
                     syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
@@ -266,9 +275,13 @@ void *connectionThreadWork(void *threadParamsIn){
                  
             //write the file to the connection
             //Note: might want more granular locking within the function, but since file pos will be moved throughout, it might be best to lock entire function.
+            #if USE_AESD_CHAR_DEVICE == 0
             pthread_mutex_lock(&pdfile_lock);
+            #endif
             int f2sRes = write_file_to_socket(threadParams->packetdata_fd, threadParams->connection_fd);
+            #if USE_AESD_CHAR_DEVICE == 0
             pthread_mutex_unlock(&pdfile_lock);       
+            #endif
             if (f2sRes == -1){
                 syslog((LOG_USER | LOG_INFO),"Error writting file to socket!");
                 threadParams->thread_complete = 1;
@@ -395,7 +408,9 @@ int main(int argc, char*argv[]){
 
     
     //Initialize mutex for packet data file
+     #if USE_AESD_CHAR_DEVICE == 0
     pthread_mutex_init(&pdfile_lock,NULL);
+    #endif
 
 
     //Signal handler for sigalrm and 10 second interval timer setup
