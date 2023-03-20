@@ -381,7 +381,7 @@ int main(int argc, char*argv[]){
      //Open or Create file for input data
      #if USE_AESD_CHAR_DEVICE == 1   
         syslog((LOG_USER | LOG_INFO),"Using char driver rather than data file");
-        int packetdata_fd = open("/dev/aesdchar", (O_RDWR | O_CREAT | O_APPEND), 0644);
+        int packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
     #else
         syslog((LOG_USER | LOG_INFO),"Using data file rather than char driver");
         int packetdata_fd = open("/var/tmp/aesdsocketdata", (O_RDWR | O_CREAT | O_APPEND), 0644);
