@@ -135,6 +135,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
         new_write = (char *)kmalloc(count, GFP_KERNEL);
         if (!new_write){
+            PDEBUG("Error in kmalloc of new write!");
             retval = -ENOMEM;
             kfree(new_write);
             goto write_end;
@@ -142,6 +143,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
 
         if (copy_from_user(new_write, buf, count)){
+            PDEBUG("Error copying from user!");
             retval = -EFAULT;
             kfree(new_write);
             goto write_end;
@@ -196,6 +198,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             dev->current_entry.buffptr = NULL;
             dev->current_entry.size = 0; //reset size to 0 for next write
             retval = len_cmd; 
+            PDEBUG("newline command recvd will return %zu", retval);
         }
         else{
             //simply append new bytes to current entry
