@@ -160,6 +160,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         newl_ptr = strchr(new_write, '\n');
 
         if(newl_ptr){
+            PDEBUG("cmd recvd: %s", new_write);
             //new line recvd, we must write to buffer all values upto and including newline
             len_cmd = (ssize_t)(newl_ptr - new_write); 
             len_cmd += 1; // +1 because 0 indexed (might need another +1 for null terminator. hopefully read takes care of this for us)
