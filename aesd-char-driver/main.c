@@ -105,8 +105,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     read_end:
         //unlock lock here...
         mutex_unlock(&dev->lock);
-        PDEBUG("read returning with %zu bytes read", retval);
-        PDEBUG("filepos after read: %lld",*f_pos);
+        //PDEBUG("read returning with %zu bytes read", retval);
+        //PDEBUG("filepos after read: %lld",*f_pos);
         return retval;
 }
 
@@ -228,6 +228,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //unlock lock here...
         mutex_unlock(&dev->lock);
         //might want a kfree of new_write here in case failure occurs, do not allow memory leak
+        PDEBUG("write returning with retval=%zu", retval);
         return retval;
 }
 
