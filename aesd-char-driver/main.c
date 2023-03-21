@@ -157,10 +157,15 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //NO!!! Don't free old current entry. it could have been moved into circular buffer.
 
         //will return pointer to where the newline char is in new_write
+        newl_ptr = NULL;
         newl_ptr = strchr(new_write, '\n');
 
         if(newl_ptr){
             PDEBUG("cmd recvd: %s", new_write);
+            for (i = 0; i < count; i++){
+                if (new_write[i] == '\n')
+                    PDEBUG("newline in command is located at %ld", i);
+            }
             //new line recvd, we must write to buffer all values upto and including newline
             len_cmd = (ssize_t)(newl_ptr - new_write); 
             len_cmd += 1; // +1 because 0 indexed (might need another +1 for null terminator. hopefully read takes care of this for us)
