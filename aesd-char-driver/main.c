@@ -158,7 +158,11 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
         //will return pointer to where the newline char is in new_write
         newl_ptr = NULL;
-        newl_ptr = strchr(new_write, '\n');
+        //newl_ptr = strchr(new_write, '\n');
+        for (i = 0 ; i < count; i++){
+            if (new_write[i] == '\n')
+                newl_ptr = new_write+i;
+        }
 
         if(newl_ptr){
             PDEBUG("cmd recvd: %s", new_write);
