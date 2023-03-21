@@ -222,6 +222,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             dev->current_entry.buffptr = full_buffer;
             dev->current_entry.size = full_buffer_size;
             retval = count;
+            PDEBUG("Non-newline command will return:%zu", retval);
         }
 
     write_end:
