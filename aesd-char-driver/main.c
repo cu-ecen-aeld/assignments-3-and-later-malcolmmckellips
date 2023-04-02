@@ -246,9 +246,42 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         return retval;
 }
 
+//New for assignment 9: llseek implementation:
+//Reference: scull character driver main.c scull_llseek 
+loff_t aesd_llseek(struct file *filp, loff_t offset, int whence){
+    loff_t retval = -EINVAL;
+    uint8_t index; //to iterate over buffer to find size
+    struct aesd_buffer_entry *entry; //to iterate over buffer to find size
+    loff_t total_buff_bytes = 0; //to count "size of file" for use with fixed llseek
+    struct aesd_dev *dev = filp->private_data;
+
+    PDEBUG("Seeking %lld bytes with whence %d", offset, whence);
+    //get the total number of bytes in the circular buffer
+    entry = NULL;
+    //Iterate over all entries and add their value.
+    //NOTE: This only works because we initialize the circular buffer with 0 size in unused elements
+    //      and we don't have a "pop" or "remove" function for our circular buffer. So entries always either
+    //      have a valid size or a 0 size. 
+    AESD_CIRCULAR_BUFFER_FOREACH(entry,&(dev->circ_buff),index) {
+        if (entry != NULL)
+            total_buff_bytes += entry->size;
+    }
+
+    PDEBUG("Total bytes in buffer to seek: %lld", total_buff_bytes);
+    
+    //return if mutex wait interrupted
+    if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
+
+    retval = fixed_size_llseek(filp, offset, whence, total_buff_bytes);
+
+    mutex_unlock(&dev->lock);
+    return retval;
+}
 
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
+    .llseek =   aesd_llseek,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
