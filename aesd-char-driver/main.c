@@ -23,6 +23,7 @@
 #include <linux/fs.h> // file_operations
 //#include <linux/mutex.h> //added by malcolm (maybe unncessary. scull used mutex without it...)
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -282,11 +283,99 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence){
     return retval;
 }
 
+//New for assignment 9: ioctl implementation and helper function
+//Reference: scull character driver main.c scull_ioctl
+static long aesd_adjust_file_offset(struct file *filp, unsigned int write_cmd, unsigned int write_cmd_offset){
+    struct aesd_dev *dev = filp->private_data;
+    unsigned int num_cmds = 0; //Total number of strings in the circ buffer
+    unsigned int buff_idx = 0; //Location in the circ buffer of target string
+    unsigned int curr_idx = 0; //index used to iterate through circular buffer
+    unsigned int i = 0; 
+    ssize_t total_pos = 0; //the new offset for f_pos
+    struct aesd_buffer_entry target_entry; //Entry in circ buffer containing target string
+    struct aesd_buffer_entry curr_entry; //current entry when iterateing circular buffer
+
+    if (dev->circ_buff.full)
+        num_cmds = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+    else
+        //Reference: Howdy Pierce 2022 PES data structures lecture
+        num_cmds = ( (AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED + dev->circ_buff.in_offs - dev->circ_buff.out_offs) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
+
+    if (write_cmd > (num_cmds -1) ) //-1 because write_cmd is 0 indexed 
+        return -EINVAL;
+    if (write_cmd > AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+        return -EINVAL;
+
+    PDEBUG("%u commands found in buffer. %u is a legal command index", num_cmds, write_cmd);
+
+    //Find the index in the circular buffer corresponding to the requested cmd
+    buff_idx = ( (dev->circ_buff.out_offs + write_cmd) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED ); 
+    target_entry = dev->circ_buff.entry[buff_idx];
+
+    if (write_cmd_offset >= target_entry.size) //>= becuase write_cmd_offset is 0 indexed
+        return -EINVAL;
+
+    //Iterate through all valid commands (besides target one) to get total offset
+    curr_idx = dev->circ_buff.out_offs;
+    for (i = 0; i < write_cmd; i++){ 
+        curr_entry = dev->circ_buff.entry[curr_idx];
+        total_pos += curr_entry.size; 
+        curr_idx = ( (curr_idx + 1) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED);
+    }
+
+    total_pos += write_cmd_offset; //finally add in the offset within the target command
+
+    //return if mutex wait interrupted
+    if (mutex_lock_interruptible(&dev->lock))
+        return -ERESTARTSYS;
+
+    filp->f_pos = total_pos;
+
+    mutex_unlock(&dev->lock);
+
+    return 0;
+
+}
+
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg){
+    long retval = 0; 
+    
+
+    //PDEBUG("IOCTL invoked!");
+    //Error checking for proper ioctl format from caller (as seen in scull driver)
+    /*
+    if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
+    if (_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
+    */
+
+    //Copied almost directly from course slides:
+    switch(cmd){
+        case AESDCHAR_IOCSEEKTO:
+        {   
+            struct aesd_seekto seekto;
+            if (copy_from_user(&seekto, (const void __user *)arg, sizeof(seekto)) != 0) 
+                retval = EFAULT;
+            else
+                retval = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
+
+            break;
+        }
+        default:
+            return -ENOTTY;
+    }
+
+    return retval;
+}
+
+
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .llseek =   aesd_llseek,
     .read =     aesd_read,
     .write =    aesd_write,
+    .unlocked_ioctl = aesd_ioctl, //might want compat_ioctl to work on 32b and 64b
     .open =     aesd_open,
     .release =  aesd_release,
 };
