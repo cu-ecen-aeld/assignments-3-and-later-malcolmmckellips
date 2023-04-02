@@ -82,10 +82,6 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
 
         if (found_entry == NULL){
             retval = 0; 
-            //we don't have seek capability yet to move to the start of the buffer after a read is finished and we are doing another.
-            //So assume that if the reader has gotten here, they have already read the entire file and are trying one more read checking if bytes returned was 0. 
-            //reset f_pos according to aesd_socket application's necessary operation. 
-            //*f_pos = 0; //When we have seek implemented, or if our char driver had other usecases we could remove this. 
             goto read_end;
         }
 
@@ -165,11 +161,13 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         }
 
         if(newl_ptr){
-            PDEBUG("cmd recvd: %s", new_write);
+            //PDEBUG("cmd recvd: %s", new_write);
+            /*
             for (i = 0; i < count; i++){
                 if (new_write[i] == '\n')
                     PDEBUG("newline in command is located at %ld", i);
             }
+            */
             //new line recvd, we must write to buffer all values upto and including newline
             len_cmd = (ssize_t)(newl_ptr - new_write); 
             len_cmd += 1; // +1 because 0 indexed (might need another +1 for null terminator. hopefully read takes care of this for us)
@@ -208,6 +206,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             dev->current_entry.buffptr = NULL;
             dev->current_entry.size = 0; //reset size to 0 for next write
             retval = len_cmd; 
+            //can update f_pos here if necessary...
+            *f_pos += len_cmd;
             PDEBUG("newline command recvd will return %zu", retval);
         }
         else{
@@ -235,6 +235,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             dev->current_entry.buffptr = full_buffer;
             dev->current_entry.size = full_buffer_size;
             retval = count;
+            //can update f_pos here if necessary...
+            *f_pos += count; 
             PDEBUG("Non-newline command will return:%zu", retval);
         }
 
@@ -243,6 +245,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         mutex_unlock(&dev->lock);
         //might want a kfree of new_write here in case failure occurs, do not allow memory leak
         PDEBUG("write returning with retval=%zu", retval);
+        PDEBUG("filepos after write: %lld",*f_pos);
         return retval;
 }
 
