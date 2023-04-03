@@ -266,7 +266,8 @@ void *connectionThreadWork(void *threadParamsIn){
      int recv_block_bytes  = 0;  //will track the number of bytes read each iteration of the loop (should be 0 or 1)
      int newline_recv      = 0;  //acting as a boolean for whether or not the newest character was a newline
      int connection_closed = 0;  //acting as a bollean for whether or not connection has closed
-            
+     
+
      while (!connection_closed && !signal_flag){
          //Receive bytes from connection, one byte at a time until newline
          newline_recv = 0;
@@ -293,6 +294,7 @@ void *connectionThreadWork(void *threadParamsIn){
                  if (recv_buff[recv_buff_size - 1] == '\n'){
                      newline_recv = 1;
                  }
+                 //If can't assume command string has a newline, must process seek command detection here
                  else{
                      //add new byte to buffer to be read in at the next loop execution
                      recv_buff_size ++;
@@ -308,27 +310,57 @@ void *connectionThreadWork(void *threadParamsIn){
              
          if (newline_recv){
              //if we've reached here, its time to write to file, newline recvd
-            ssize_t bytes_written = 0;
 
-            while (bytes_written != recv_buff_size){
-                #if USE_AESD_CHAR_DEVICE == 0
-                    pthread_mutex_lock(&pdfile_lock);
-                #else 
-                    threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
-                #endif
-                bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
-                #if USE_AESD_CHAR_DEVICE == 0
-                    pthread_mutex_unlock(&pdfile_lock);
-                #else
-                    close(threadParams->packetdata_fd);
-                #endif
-                
-                if (bytes_written == -1){
-                    syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
+            //Variables for tracking ioctl command
+            struct aesd_seekto seekto;
+            int    ioctl_packetdata_fd; //fd to use when ioctl command recvd (don't close and reopen after seek or fpos lost)
+            int    seekcom_recv = 0; //bool of if valid seekto ioctl comm recvd or not
+
+            //If not using our char device, never attempt to execute ioctl etc.
+            #if USE_AESD_CHAR_DEVICE == 0
+                seekcom_recv = 0;
+            #else
+                seekcom_recv = parse_aesd_write(recv_buff, recv_buff_size, &seekto); //should put correct offsets in seekto
+            #endif
+
+            if (seekcom_recv){
+                //We have received a valid command string
+                ioctl_packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+                int ioctl_ret = ioctl(ioctl_packetdata_fd, AESDCHAR_IOCSEEKTO, &seekto);
+                if (ioctl_ret){
+                    syslog((LOG_USER | LOG_INFO),"ERROR IN IOCTL, killing thread...\r\n");
                     threadParams->thread_complete = 1;
                     pthread_exit(NULL);
                 }
+                //don't write into device. 
+                //write the file to the connection with same fd as ioctl above
             }
+
+            else{
+                //If command string not received, write the string command into the aesdchar device
+                ssize_t bytes_written = 0;
+
+                while (bytes_written != recv_buff_size){
+                    #if USE_AESD_CHAR_DEVICE == 0
+                        pthread_mutex_lock(&pdfile_lock);
+                    #else 
+                        threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+                    #endif
+                    bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
+                    #if USE_AESD_CHAR_DEVICE == 0
+                        pthread_mutex_unlock(&pdfile_lock);
+                    #else
+                        close(threadParams->packetdata_fd);
+                    #endif
+                    
+                    if (bytes_written == -1){
+                        syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
+                        threadParams->thread_complete = 1;
+                        pthread_exit(NULL);
+                    }
+                }
+            }
+
             //We can reset our recieve buffer to a single char in preparation for recieving next packet
             recv_buff_size = 1;
             recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate
@@ -343,7 +375,11 @@ void *connectionThreadWork(void *threadParamsIn){
             #if USE_AESD_CHAR_DEVICE == 0
                 pthread_mutex_lock(&pdfile_lock);
             #else
-                threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+                //if seekcom was received, we already have an open fd to use for reading and writing file out to socket
+                if (!seekcom_recv)
+                    threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+                else
+                    threadParams->packetdata_fd = ioctl_packetdata_fd; 
             #endif
             int f2sRes = write_file_to_socket(threadParams->packetdata_fd, threadParams->connection_fd);
             #if USE_AESD_CHAR_DEVICE == 0
