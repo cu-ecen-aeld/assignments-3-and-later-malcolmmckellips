@@ -28,15 +28,21 @@ void write_light_sensor(char cmd_code, char data_lsb, char data_msb){
 	printf("Successfully wrote to light sensor\r\n");
 }
 
-int read_light_sensor(){
+void read_light_sensor(){
 	printf("Reading light sensor...\r\n");
 	buffer[0] = 0x04;
+	int bytes_to_read = 2; 
+	write(file_i2c, buffer, 1);
+	read(file_i2c, buffer,bytes_to_read);
+	printf("write and read finished\r\n");
+	printf("First byte: %u, Second byte: %u\r\n",(unsigned int)buffer[0],(unsigned int)buffer[1]);
+	/*
 	if (write(file_i2c, buffer, 1) != 1){
 		printf("Failed to select 0x04 register in i2c device read.\r\n");
 		return -1;
 	}
-	printf("location 0x04 selected in light sensor...\r\n");
-	int bytes_to_read = 2;
+	//printf("location 0x04 selected in light sensor...\r\n");
+	//int bytes_to_read = 2;
 
 	if (read(file_i2c, buffer,bytes_to_read) != bytes_to_read){
 		printf("Failed to read both bytes in i2c device read.\r\n");
@@ -46,7 +52,8 @@ int read_light_sensor(){
 	unsigned int raw_value = (buffer[1] << 8) + buffer[0]; //data is in form LSB, MSB
 	printf("Raw Value: %d\r\n",raw_value);
 	float lux = (float)raw_value * 0.0576;
-	return (int)lux;
+	*/
+	//return (int)lux;
 }
 
 int main(){
@@ -71,9 +78,9 @@ int main(){
 
 	//ALS power on, wait >= 2.5ms (ALS_SD=0)
 	//ALS sensitivityx1, IT = 100ms, ALS persistence protect =1, ALS interrupt disabled, ALS enabled
-	write_light_sensor(0x00, 0x00, 0x00); 
+	////write_light_sensor(0x00, 0x00, 0x00); 
 
-	usleep(5000); //wait > 2.5ms
+	//usleep(5000); //wait > 2.5ms
 
 	printf("I2C hardware initialization complete\r\n"); 
 
@@ -83,9 +90,9 @@ int main(){
 	while(1){
 		//ALS command code #4 (read out ALS data)
 
-		int new_lux = read_light_sensor();
+		read_light_sensor();
 
-		printf("Current Lux: %d", new_lux);
+		//printf("Current Lux: %d", new_lux);
 
 		sleep(1); //wait a second between readings...
 		//might want to disable/reenable here...
