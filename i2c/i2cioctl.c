@@ -57,7 +57,8 @@ void read_light_sensor(){
 	if (res < 2){
 		printf("Expected 2 bytes, got %d bytes\r\n", res);
 	}
-	printf("I2C_READ: Byte 1: %c, Byte 2: %c\r\n", buffer[0], buffer[1]);
+	printf("OLD: Byte 1: %c, Byte 2: %c\r\n", buffer[0], buffer[1]);
+	printf("I2C_READ: Byte 0: %hhu, Byte 1: %hhu\r\n", buffer[0], buffer[1]);
 }
 
 int main(){
