@@ -15,6 +15,7 @@ char *filename = (char*)"/dev/i2c-1";
 
 
 void write_light_sensor(char cmd_code, char data_lsb, char data_msb){
+	printf("Writing light sensor...\r\n");
 	buffer[0] = cmd_code; //command code
 	buffer[1] = data_lsb; //data LSB 
 	buffer[2] = data_msb; //data MSB
@@ -22,21 +23,28 @@ void write_light_sensor(char cmd_code, char data_lsb, char data_msb){
 
 	if (write(file_i2c, buffer, bytes_to_write) != bytes_to_write){
 		printf("Failed to write cmd %X to the i2c device.\r\n",cmd_code);
+		return;
 	}
+	printf("Successfully wrote to light sensor\r\n");
 }
 
 int read_light_sensor(){
+	printf("Reading light sensor...\r\n");
 	buffer[0] = 0x04;
 	if (write(file_i2c, buffer, 1) != 1){
 		printf("Failed to select 0x04 register in i2c device read.\r\n");
 		return -1;
 	}
+	printf("location 0x04 selected in light sensor...\r\n");
 	int bytes_to_read = 2;
+
 	if (read(file_i2c, buffer,bytes_to_read) != bytes_to_read){
 		printf("Failed to read both bytes in i2c device read.\r\n");
 		return -1;
 	}
+	printf("Successfully read both i2c bytes...\r\n");
 	unsigned int raw_value = (buffer[1] << 8) + buffer[0]; //data is in form LSB, MSB
+	printf("Raw Value: %d\r\n",raw_value);
 	float lux = (float)raw_value * 0.0576;
 	return (int)lux;
 }
@@ -65,7 +73,7 @@ int main(){
 	//ALS sensitivityx1, IT = 100ms, ALS persistence protect =1, ALS interrupt disabled, ALS enabled
 	write_light_sensor(0x00, 0x00, 0x00); 
 
-	usleep(3000); //wait > 2.5ms
+	usleep(5000); //wait > 2.5ms
 
 	printf("I2C hardware initialization complete\r\n"); 
 
