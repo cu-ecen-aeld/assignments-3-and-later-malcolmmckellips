@@ -57,8 +57,15 @@ void read_light_sensor(){
 	if (res < 2){
 		printf("Expected 2 bytes, got %d bytes\r\n", res);
 	}
-	printf("OLD: Byte 1: %c, Byte 2: %c\r\n", buffer[0], buffer[1]);
-	printf("I2C_READ: Byte 0: %hhu, Byte 1: %hhu\r\n", buffer[0], buffer[1]);
+	printf("I2C_READ: MSB: %hhu, LSB: %hhu\r\n", buffer[1], buffer[0]);
+	unsigned int MSB = (unsigned int)buffer[1];
+	unsigned int LSB = (unsigned int)buffer[0];
+	unsigned int raw_value = (MSB << 8) + LSB;
+	printf("raw value: %d",raw_value);
+	//Equation for raw to lux is: lux = raw * 0.0576
+	unsigned long lux = (unsigned long)raw_value * (unsigned long)576;
+	lux = lux / (unsigned long)10000; 
+	printf("LUX: %lu\r\n\r\n",lux);
 }
 
 int main(){
