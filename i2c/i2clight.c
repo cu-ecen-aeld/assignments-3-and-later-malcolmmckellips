@@ -42,6 +42,8 @@ int read_light_sensor(){
 }
 
 int main(){
+	printf("I2C program started!\r\n"); 
+
 	if ((file_i2c = open(filename, O_RDWR)) < 0)
 	{
 		printf("Failed to open the i2c bus");
@@ -55,6 +57,8 @@ int main(){
 		return 1;
 	}
 
+	printf("I2C driver initialization complete\r\n"); 
+
 	usleep(3000); //sleep for a 3 mS to ensure that the uC has heated up
 
 	//ALS power on, wait >= 2.5ms (ALS_SD=0)
@@ -62,6 +66,8 @@ int main(){
 	write_light_sensor(0x00, 0x00, 0x00); 
 
 	usleep(3000); //wait > 2.5ms
+
+	printf("I2C hardware initialization complete\r\n"); 
 
 	//Integration time
 	//ALS gain setting
