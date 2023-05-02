@@ -16,6 +16,7 @@
 
 #include <string.h>
 #include "MQTTClient.h"
+#include "libpaho-mqtt3cs.h"
 //#include "../paho.mqtt.c/src/samples/pubsub_opts.h"
 
 int messageArrived(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
