@@ -1,7 +1,7 @@
 CC ?= $(CROSS_COMPILE)gcc
 CFLAGS ?= -g -Wall -Werror
 TARGET ?= mqtt
-LDFLAGS ?= -l paho-mqtt3cs
+LDFLAGS ?= -libpaho-mqtt3cs
 
 all: $(TARGET)
 default: $(TARGET)
