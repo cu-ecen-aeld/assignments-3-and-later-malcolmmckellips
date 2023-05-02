@@ -1,0 +1,18 @@
+#! /bin/sh
+
+case "$1" in
+	start)
+		echo "starting aesdchar mods/driver"
+		/usr/bin/aesdchar_load
+		#depmod
+		#modprobe aesdchar #should already be done by insmod in aesdchar_load
+		;;
+	stop)
+		#start-stop-daemon -K -n aesdsocket
+		echo "killing aesdchar mods/driver"
+		/usr/bin/aesdchar_unload
+		#rmmod aesdchar #should already be done by rmmod in aesdchar_unload
+		;;
+	*)
+	exit 1
+esac
