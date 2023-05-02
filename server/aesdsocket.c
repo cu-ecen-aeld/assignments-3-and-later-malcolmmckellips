@@ -336,31 +336,6 @@ void *connectionThreadWork(void *threadParamsIn){
                 //write the file to the connection with same fd as ioctl above
             }
 
-            else{
-                //If command string not received, write the string command into the aesdchar device
-                ssize_t bytes_written = 0;
-
-                while (bytes_written != recv_buff_size){
-                    #if USE_AESD_CHAR_DEVICE == 0
-                        pthread_mutex_lock(&pdfile_lock);
-                    #else 
-                        threadParams->packetdata_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
-                    #endif
-                    bytes_written = write(threadParams->packetdata_fd, recv_buff,(recv_buff_size-bytes_written));
-                    #if USE_AESD_CHAR_DEVICE == 0
-                        pthread_mutex_unlock(&pdfile_lock);
-                    #else
-                        close(threadParams->packetdata_fd);
-                    #endif
-                    
-                    if (bytes_written == -1){
-                        syslog((LOG_USER | LOG_INFO),"Error writing packet to tmp data file!");
-                        threadParams->thread_complete = 1;
-                        pthread_exit(NULL);
-                    }
-                }
-            }
-
             //We can reset our recieve buffer to a single char in preparation for recieving next packet
             recv_buff_size = 1;
             recv_buff = realloc(recv_buff, (recv_buff_size)*sizeof(char)); //allocate

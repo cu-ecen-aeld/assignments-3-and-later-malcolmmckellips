@@ -3,27 +3,29 @@
 //I2C functions for interfacing with VEML7700 ambient light sensor
 //Reference: https://raspberry-projects.com/pi/programming-in-c/i2c/using-the-i2c-interface
 
-#include <unistd.h>				//Needed for I2C port
-#include <fcntl.h>				//Needed for I2C port
-#include <sys/ioctl.h>			//Needed for I2C port
-#include <linux/i2c-dev.h>		//Needed for I2C port
+#include <unistd.h>				
+#include <fcntl.h>				
+#include <sys/ioctl.h>			
+#include <linux/i2c-dev.h>		
 #include <stdio.h>
 #include <linux/types.h>
 #include <linux/i2c.h>
+#include <string.h>
 
-int file_i2c;
-unsigned char buffer[60] = {0};
-char *filename = (char*)"/dev/i2c-1";
+#define LUX_STR_LEN	(20)
 
+int i2c_dev_fd;
+char *i2c_dev_name = (char*)"/dev/i2c-1";
 
 void write_light_sensor(char cmd_code, char data_lsb, char data_msb){
+	unsigned char i2c_transfer_buffer[60];
 	printf("Writing light sensor...\r\n");
-	buffer[0] = cmd_code; //command code
-	buffer[1] = data_lsb; //data LSB 
-	buffer[2] = data_msb; //data MSB
+	i2c_transfer_buffer[0] = cmd_code; //command code
+	i2c_transfer_buffer[1] = data_lsb; //data LSB 
+	i2c_transfer_buffer[2] = data_msb; //data MSB
 	int bytes_to_write = 3;
 
-	if (write(file_i2c, buffer, bytes_to_write) != bytes_to_write){
+	if (write(i2c_dev_fd, i2c_transfer_buffer, bytes_to_write) != bytes_to_write){
 		printf("Failed to write cmd %X to the i2c device.\r\n",cmd_code);
 		return;
 	}
@@ -32,6 +34,7 @@ void write_light_sensor(char cmd_code, char data_lsb, char data_msb){
 
 //reference: https://forums.raspberrypi.com/viewtopic.php?t=301652
 void read_light_sensor(){
+	unsigned char buffer[60];
 	printf("Reading light sensor...\r\n");
 	
 	struct i2c_rdwr_ioctl_data my_i2c_rdwr;
@@ -53,7 +56,7 @@ void read_light_sensor(){
 	i2c_msg_buff[1].len  = 2; 
 	i2c_msg_buff[1].flags = I2C_M_RD;
 
-	int res = ioctl(file_i2c, I2C_RDWR, &my_i2c_rdwr);
+	int res = ioctl(i2c_dev_fd, I2C_RDWR, &my_i2c_rdwr);
 	if (res < 2){
 		printf("Expected 2 bytes, got %d bytes\r\n", res);
 	}
@@ -61,17 +64,37 @@ void read_light_sensor(){
 	unsigned int MSB = (unsigned int)buffer[1];
 	unsigned int LSB = (unsigned int)buffer[0];
 	unsigned int raw_value = (MSB << 8) + LSB;
-	printf("raw value: %d",raw_value);
+	printf("raw value: %d ",raw_value);
 	//Equation for raw to lux is: lux = raw * 0.0576
 	unsigned long lux = (unsigned long)raw_value * (unsigned long)576;
 	lux = lux / (unsigned long)10000; 
 	printf("LUX: %lu\r\n\r\n",lux);
+
+	//Write lux value to the aesdchar device.
+	char lux_str[LUX_STR_LEN];
+	sprintf(lux_str,"LUX: %lu\r\n",lux);
+
+    ssize_t bytes_written = 0;
+    ssize_t bytes_to_write = strlen(lux_str);
+
+    while (bytes_written != bytes_to_write){
+
+        int char_dev_fd = open("/dev/aesdchar", (O_RDWR  | O_APPEND));
+
+        bytes_written = write(char_dev_fd, lux_str,(bytes_to_write-bytes_written));
+
+        close(char_dev_fd);
+        
+        if (bytes_written == -1)
+            printf("ERROR: Issue with I2C write to char device\r\n");
+    }
+	
 }
 
 int main(){
 	printf("I2C IOCTL program started!\r\n"); 
 
-	if ((file_i2c = open(filename, O_RDWR)) < 0)
+	if ((i2c_dev_fd = open(i2c_dev_name, O_RDWR)) < 0)
 	{
 		printf("Failed to open the i2c bus");
 		return 1;
@@ -79,7 +102,7 @@ int main(){
 
 	//might interfere with our future ioctls...
 	int addr = 0x10;          //<<<<<The I2C address of the slave
-	if (ioctl(file_i2c, I2C_SLAVE, addr) < 0)
+	if (ioctl(i2c_dev_fd, I2C_SLAVE, addr) < 0)
 	{
 		printf("Failed to acquire bus access and/or talk to slave.\n");
 		return 1;
