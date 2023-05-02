@@ -16,7 +16,7 @@
 
 #include <string.h>
 #include "MQTTClient.h"
-//#include "paho.mqtt.c/src/samples/pubsub_opts.h"
+#include "../paho.mqtt.c/src/samples/pubsub_opts.h"
 
 int messageArrived(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
     printf("Message arrived %s \n", (char*)message->payload);
